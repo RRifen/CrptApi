@@ -205,7 +205,7 @@ public class CrptApi {
 
   public CrptApi(TimeUnit timeUnit, int requestLimit) {
     this.requestLimit = requestLimit;
-    requestsTimeLimit = timeUnit.convert(1, timeUnit);
+    requestsTimeLimit = TimeUnit.MILLISECONDS.convert(1, timeUnit);
     gson = createGsonForDocument();
     httpClient = HttpClient.newHttpClient();
   }
@@ -225,30 +225,24 @@ public class CrptApi {
   }
 
   private void validateRateLimit() throws InterruptedException {
-    lock.lock();
-    long currentTime = System.currentTimeMillis();
-    while(!timestampQueue.isEmpty() && timestampQueue.peek() < currentTime - requestsTimeLimit) {
-      timestampQueue.poll();
+    try {
+      lock.lock();
+      while (!timestampQueue.isEmpty() && timestampQueue.peek() < (System.currentTimeMillis() - requestsTimeLimit)) {
+        timestampQueue.remove();
+      }
+      while (requestLimit <= timestampQueue.size()) {
+        long waiting = timestampQueue.peek() - (System.currentTimeMillis() - requestsTimeLimit);
+        while(waiting > 0) {
+          Thread.sleep(waiting);
+          waiting = timestampQueue.peek() - (System.currentTimeMillis() - requestsTimeLimit);
+        }
+        timestampQueue.remove();
+      }
+      timestampQueue.add(System.currentTimeMillis());
     }
-    if (requestLimit < timestampQueue.size()) {
-      long waiting;
-
-      if (!timestampQueue.isEmpty()) {
-        waiting =  timestampQueue.peek() - (System.currentTimeMillis() - requestsTimeLimit);
-      }
-      else {
-        waiting = 0;
-      }
-
-      if (waiting > 0) {
-        Thread.sleep(waiting);
-      }
-      else {
-        timestampQueue.poll();
-      }
+    finally {
+      lock.unlock();
     }
-    timestampQueue.add(System.currentTimeMillis());
-    lock.unlock();
   }
 
 }
